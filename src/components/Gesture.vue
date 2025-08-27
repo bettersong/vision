@@ -1,22 +1,26 @@
 <template>
-    <div id="liveView" class="container">
+    <div class="container">
         <video id="webcam" autoplay playsinline></video>
         <canvas class="output_canvas" id="output_canvas"></canvas>
+        <div class="loading" v-if="loadingAssets">加载模型资源中...</div>
     </div>
-    <div class="gesture_btn" @click="createGestureRecognizer">开启识别</div>
+
+    <div class="gesture_btn" @click="start">{{ isOpen ? '停止识别' : '开启识别' }}</div>
 </template>
 
 <script setup lang="ts">
 // @ts-ignore
 import { GestureRecognizer, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision';
-import { ref, nextTick,onMounted } from 'vue'
+import { ref, nextTick } from 'vue'
 
 // 手势识别器实例
 let gestureRecognizer: any;
-
-
+let tracks: any;
 // 视频手势信息
-const videoGestureInfo = ref({});
+const videoGestureInfo = ref<any>({});
+
+const loadingAssets = ref(false) // 资源加载状态
+const isOpen = ref(false) // 识别状态
 
 // 手势枚举
 const enumGesture = {
@@ -29,6 +33,24 @@ const enumGesture = {
   None: '未识别',
 };
 
+const start = () => {
+  if(!isOpen.value) {
+    createGestureRecognizer();
+  }else {
+    stop();
+  }
+}
+
+const stop = () => {
+  if (gestureRecognizer) {
+    gestureRecognizer.close();
+    gestureRecognizer = null;
+    // 关闭视频
+    tracks.forEach((track: any) => track.stop());
+  }
+  isOpen.value = false;
+}
+
 // 创建手势识别器
 const createGestureRecognizer = async () => {
     // 加载指定版本的MediaPipe视觉任务WebAssembly模块
@@ -36,25 +58,29 @@ const createGestureRecognizer = async () => {
     console.log('-----', vision)
     // 创建了一个手势识别器实例(这个手势识别器实例使用的是指定版本的MediaPipe视觉任务WebAssembly模块)
     try {
+        loadingAssets.value = true;
         gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
             baseOptions: {
-                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',
+                modelAssetPath: './gesture_recognizer.task',
                 delegate: 'GPU'
             },
             // https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
             numHands: 2,
             runningMode: 'VIDEO' // 视频模式
         });
-
+        isOpen.value = true;
         console.log('手势识别器加载成功', gestureRecognizer);
         // 识别视频中的手势
         predictWebcam();
     } catch (error) {
+        isOpen.value = false;
         console.log('手势识别器加载失败', error);
     }
+    loadingAssets.value = false;
 }
 
 // 识别视频中的手势
+let oldGesture = '' // 上一个识别的手势
 const predictWebcam = async () => {
   // 判断是否可以使用摄像头
   if (!hasGetUserMedia()) return alert('此设备不允许使用摄像头!');
@@ -83,7 +109,7 @@ const predictWebcam = async () => {
       if (video.currentTime !== lastVideoTime) {
         // 替换上次识别视频手势的时间
         lastVideoTime = video.currentTime;
-        results = gestureRecognizer.recognizeForVideo(video, nowInMs);
+        results = gestureRecognizer?.recognizeForVideo(video, nowInMs);
       }
 
       // 保存当前的canvas状态
@@ -94,7 +120,7 @@ const predictWebcam = async () => {
       // 创建drawingUtils实例,用于可视化MediaPipeVision任务的结果
       const drawingUtils = new DrawingUtils(canvasCtx);
       // 判断是否识别到手势
-      if (results.landmarks) {
+      if (results?.landmarks) {
         // 循环绘制手势的节点
         for (const landmarks of results.landmarks) {
           // 绘制手势连接线
@@ -115,25 +141,47 @@ const predictWebcam = async () => {
       }
       // 恢复canvas的状态
       canvasCtx?.restore();
-      console.log('【手势数据】', results);
+      
       // 判断是否识别到手势数据
-    //   if (results?.gestures?.length > 0) {
-    //     videoGestureInfo.value.categoryName = enumGesture[results.gestures[0][0].categoryName];
-    //     videoGestureInfo.value.categoryScore = parseFloat(results.gestures[0][0].score * 100).toFixed(2);
-    //     videoGestureInfo.value.handedness = results.handednesses[0][0].displayName;
-    //   } else {
-    //     videoGestureInfo.value.categoryName = '';
-    //     videoGestureInfo.value.categoryScore = '';
-    //     videoGestureInfo.value.handedness = '';
-    //   }
+      if (results?.gestures?.length > 0) {
+        const categoryName = enumGesture[results.gestures[0][0].categoryName as keyof typeof enumGesture]
+        const categoryScore = parseFloat(`${results.gestures[0][0].score * 100}`).toFixed(2);
+        const handedness = results.handednesses[0][0].displayName;
 
-      // 递归调用,继续识别视频中的手势
+        videoGestureInfo.value = {
+          categoryName,
+          categoryScore,
+          handedness
+        };
+
+        if (oldGesture === enumGesture.Open_Palm && categoryName === enumGesture.Closed_Fist) {
+          console.log('检测到手势变化: 从张开手掌到握紧拳头');
+          // 截屏
+          takeScreenshot();
+        }
+
+
+        if(videoGestureInfo.value.categoryName !== enumGesture.None) {
+          oldGesture = videoGestureInfo.value.categoryName;
+        }
+        
+        // console.log('【手势数据】', results, videoGestureInfo.value);
+      } else {
+        videoGestureInfo.value = {
+          categoryName: '',
+          categoryScore: '',
+          handedness: ''
+        };
+      }
+
+      // 递归调用, 持续识别视频中的手势
       requestAnimationFrame(predictWebcam);
     };
 
     // 打开摄像头
     navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
       // 视频流添加到video元素中
+      tracks = stream.getTracks();
       video.srcObject = stream;
       // 绑定视频加载完成事件,开始识别视频中的手势
       video.addEventListener('loadeddata', () => {
@@ -148,14 +196,30 @@ const predictWebcam = async () => {
 }
 
 // 判断是否可以使用摄像头
-function hasGetUserMedia() {
+const hasGetUserMedia = () => {
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
-onMounted(() => {
-  // 加载手势识别器
-//   createGestureRecognizer();
-})
+// 截屏
+const takeScreenshot = () => {
+  const video = document.getElementById('webcam') as HTMLVideoElement;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataURL = canvas.toDataURL('image/png');
+    // 下载图片
+    const link = document.createElement('a');
+    link.href = dataURL;
+    link.download = 'screenshot.png';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+}
+
 
 </script>
 
@@ -163,15 +227,21 @@ onMounted(() => {
 .container {
     position: relative;
 }
+.loading {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 20px;
+}
 
 .output_canvas {
   position: absolute;
   top: 0;
   left: 0;
   margin: 0 auto;
-  transform: rotateY(180deg);
+  /* transform: rotateY(180deg);
   -webkit-transform: rotateY(180deg);
-  -moz-transform: rotateY(180deg);
+  -moz-transform: rotateY(180deg); */
 }
 .gesture_btn {
     width: 100px;
