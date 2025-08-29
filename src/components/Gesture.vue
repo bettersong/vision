@@ -1,8 +1,8 @@
 <template>
     <div class="container">
-        <video id="webcam" autoplay playsinline></video>
-        <canvas class="output_canvas" id="output_canvas"></canvas>
         <div class="loading" v-if="loadingAssets">加载模型资源中...</div>
+        <video id="webcam" width="400" height="300" autoplay playsinline></video>
+        <canvas class="output_canvas" id="output_canvas"></canvas>
     </div>
 
     <div class="gesture_btn" @click="start">{{ isOpen ? '停止识别' : '开启识别' }}</div>
@@ -24,7 +24,7 @@ const isOpen = ref(false) // 识别状态
 
 // 手势枚举
 const enumGesture = {
-  Closed_Fist: '握紧拳头',
+  Closed_Fist: '握拳',
   Open_Palm: '张开手掌',
   Thumb_Up: '竖起大拇指',
   Thumb_Down: '拇指朝下',
@@ -155,7 +155,7 @@ const predictWebcam = async () => {
         };
 
         if (oldGesture === enumGesture.Open_Palm && categoryName === enumGesture.Closed_Fist) {
-          console.log('检测到手势变化: 从张开手掌到握紧拳头');
+          console.log('检测到手势变化');
           // 截屏
           takeScreenshot();
         }
@@ -230,8 +230,8 @@ const takeScreenshot = () => {
 .loading {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
-  bottom: 20px;
+  top: 50%;
+  transform: translateX(-50%) translateY(-50%);
 }
 
 .output_canvas {
