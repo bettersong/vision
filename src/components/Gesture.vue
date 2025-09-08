@@ -129,14 +129,14 @@ const startPredictWebcam = async () => {
 
       // 创建drawingUtils实例,用于可视化MediaPipeVision任务的结果
       const drawingUtils = new DrawingUtils(canvasCtx);
-      // if(results?.gestures?.length) {
-      //   showGesture.value = enumGesture[results.gestures[0][0].categoryName as keyof typeof enumGesture];
-      // }
+      if(results?.gestures?.length) {
+        showGesture.value = enumGesture[results.gestures[0][0].categoryName as keyof typeof enumGesture];
+      }
        const width = canvasElement?.width;
-        const height = canvasElement?.height;
+       const height = canvasElement?.height;
       // 判断是否识别到手势
       if (results?.landmarks?.length) {
-        // console.log(results)
+        console.log(results)
        
         // 循环绘制手势的节点
 
